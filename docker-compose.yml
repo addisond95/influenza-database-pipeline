@@ -1,0 +1,115 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: flu_postgres
+    environment:
+      POSTGRES_USER: fluuser
+      POSTGRES_PASSWORD: flupass
+      POSTGRES_DB: flu_database
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - flu_network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U fluuser" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  airflow-webserver:
+    build: .
+    container_name: flu_airflow_webserver
+    command: >
+      bash -c "
+        airflow db init &&
+        airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin 2>/dev/null || echo 'User exists' &&
+        airflow webserver --port 8080
+      "
+    ports:
+      - "8080:8080"
+    environment:
+      - AIRFLOW_HOME=/app/airflow
+      - AIRFLOW__CORE__DAGS_FOLDER=/app/dags
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://fluuser:flupass@postgres:5432/flu_database
+      - AIRFLOW__WEBSERVER__SECRET_KEY=flu_data_pipeline_2025
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+    volumes:
+      - .:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - flu_network
+    restart: always
+
+  airflow-scheduler:
+    build: .
+    container_name: flu_airflow_scheduler
+    command: airflow scheduler
+    environment:
+      - AIRFLOW_HOME=/app/airflow
+      - AIRFLOW__CORE__DAGS_FOLDER=/app/dags
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://fluuser:flupass@postgres:5432/flu_database
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+    volumes:
+      - .:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - flu_network
+    restart: always
+
+  jupyter-notebook:
+    build: .
+    container_name: flu_jupyter_notebook
+    command: jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token=flutoken --NotebookApp.allow_origin='*' --NotebookApp.disable_check_xsrf=True
+    ports:
+      - "8888:8888"
+    volumes:
+      - .:/app
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_USER=fluuser
+      - POSTGRES_PASSWORD=flupass
+      - POSTGRES_DB=flu_database
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - flu_network
+    restart: always
+
+  flask-api:
+    build: .
+    container_name: flu_flask_api
+    command: python api/app.py
+    ports:
+      - "5001:5000"
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_USER=fluuser
+      - POSTGRES_PASSWORD=flupass
+      - POSTGRES_DB=flu_database
+      - FLASK_ENV=development
+    volumes:
+      - .:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - flu_network
+    restart: always
+
+networks:
+  flu_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
