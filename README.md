@@ -29,12 +29,12 @@ The data gathering, data cleaning, and SQL ingesting are all done through airflo
 
 ### 2. Process data through airflow
 
-- ✅ Download WA DOH RHINO data - flu_data_airflow_v2.py
-- ✅ Download Census population data - flu_data_airflow_v2.py
-- ✅ Download CDC FluView data - flu_data_airflow_v2.py
-- ✅ Clean and transform the data - flu_data_airflow_v2.py
-- ✅ Create PostgreSQL database tables - flu_data_airflow_v2.py
-- ✅ Load all data into the database - flu_data_airflow_v2.py
+- Download WA DOH RHINO data - flu_data_airflow_v2.py
+- Download Census population data - flu_data_airflow_v2.py
+- Download CDC FluView data - flu_data_airflow_v2.py
+- Clean and transform the data - flu_data_airflow_v2.py
+- Create PostgreSQL database tables - flu_data_airflow_v2.py
+- Load all data into the database - flu_data_airflow_v2.py
 
 D. Log-In to Airflow (If website doesn't show up please give it 30 seconds to 1 min after container is created to start up)
 
@@ -54,9 +54,9 @@ E. Airflow will automate the entire data pipeline from start to finish and is de
 http://localhost:5001/viewer
 
 The dashboard provides:
-- 📈 **Weekly Trends**: Real-time flu activity by week
-- 🏨 **Healthcare Impact**: Hospital utilization metrics
-- 📊 **Historical Summary**: Long-term flu patterns
+- **Weekly Trends**: Real-time flu activity by week
+- **Healthcare Impact**: Hospital utilization metrics
+- **Historical Summary**: Long-term flu patterns
 
 ## Project Architecture
 
@@ -137,7 +137,7 @@ docker-compose down -v
 
 ## Troubleshooting
 
-### ❌ "No data available" in Dashboard
+### "No data available" in Dashboard
 
 **Solution**: Run the airflow process once to load db with data.
 ```bash
@@ -145,7 +145,7 @@ docker-compose down -v
 
 ```
 
-### ❌ Jupyter Token Not Working
+### Jupyter Token Not Working
 
 ```bash
 # Get fresh token
@@ -155,7 +155,7 @@ docker-compose logs jupyter | grep token
 docker-compose restart jupyter
 ```
 
-### ❌ Port Already in Use
+### Port Already in Use
 
 ```bash
 # Check what's using port 5001
@@ -207,6 +207,26 @@ Username: fluuser
 Password: flupass
 ```
 
+## Contributors
+Thomas England
+- Jupyter notebook development
+- Python scripting for data processing
+- Web API implementation
+- Docker configuration and service integration
+
+Andrew Fuerst
+- Data engineering and table creation
+- SQL query development
+- Airflow installation and configuration
+- DAG development and workflow automation
+- Docker configuration and service integration
+
+Addison DeSalvo
+- Proposal development
+- Entity relationship diagram and schema design
+- Table design and normalization logic
+- Report and Documentation
+- Debugging and Testing
 
 ## License
 
