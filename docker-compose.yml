@@ -1,111 +1,125 @@
-version: '3.8'
+# ---------------------------------------------------------------------------
+# Washington State Flu Data Pipeline — Docker Compose stack
+#
+#   postgres          shared database (flu_database + airflow metadata)
+#   airflow-init      one-shot: db migrate + admin user
+#   airflow-webserver Airflow UI            (http://localhost:8080)
+#   airflow-scheduler runs the DAG
+#   api               Flask dashboard + API (http://localhost:5001)
+# ---------------------------------------------------------------------------
+
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: docker/airflow.Dockerfile
+  image: flu-pipeline/airflow:latest
+  environment: &airflow-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-fluuser}:${POSTGRES_PASSWORD:-flupass}@postgres:5432/airflow
+    AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+    AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:-please-change-me}
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "True"
+    APP_DB_USER: ${APP_DB_USER:-fluuser}
+    APP_DB_PASSWORD: ${APP_DB_PASSWORD:-flupass}
+    APP_DB_HOST: ${APP_DB_HOST:-postgres}
+    APP_DB_PORT: ${APP_DB_PORT:-5432}
+    APP_DB_NAME: ${APP_DB_NAME:-flu_database}
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./flu_pipeline:/opt/airflow/app/flu_pipeline
+    - ./processed_files:/opt/airflow/processed_files
+    - airflow_logs:/opt/airflow/logs
+    - flu_data:/opt/airflow/data
+  user: "${AIRFLOW_UID:-50000}:0"
+  networks:
+    - flu_network
 
 services:
   postgres:
     image: postgres:15
     container_name: flu_postgres
     environment:
-      POSTGRES_USER: fluuser
-      POSTGRES_PASSWORD: flupass
-      POSTGRES_DB: flu_database
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER:-fluuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-flupass}
+      POSTGRES_DB: ${POSTGRES_DB:-flu_database}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    networks:
-      - flu_network
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
+    ports:
+      - "5432:5432"
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U fluuser" ]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fluuser}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - flu_network
+
+  airflow-init:
+    <<: *airflow-common
+    container_name: flu_airflow_init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      bash -c "airflow db migrate &&
+               airflow users create
+               --username ${AIRFLOW_ADMIN_USER:-admin}
+               --password ${AIRFLOW_ADMIN_PASSWORD:-admin}
+               --firstname Admin --lastname User --role Admin
+               --email admin@example.com || true"
+    restart: on-failure
 
   airflow-webserver:
-    build: .
+    <<: *airflow-common
     container_name: flu_airflow_webserver
-    command: >
-      bash -c "
-        airflow db init &&
-        airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin 2>/dev/null || echo 'User exists' &&
-        airflow webserver --port 8080
-      "
+    command: webserver
     ports:
       - "8080:8080"
-    environment:
-      - AIRFLOW_HOME=/app/airflow
-      - AIRFLOW__CORE__DAGS_FOLDER=/app/dags
-      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://fluuser:flupass@postgres:5432/flu_database
-      - AIRFLOW__WEBSERVER__SECRET_KEY=flu_data_pipeline_2025
-      - AIRFLOW__CORE__LOAD_EXAMPLES=False
-    volumes:
-      - .:/app
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: always
     depends_on:
       postgres:
         condition: service_healthy
-    networks:
-      - flu_network
-    restart: always
+      airflow-init:
+        condition: service_completed_successfully
 
   airflow-scheduler:
-    build: .
+    <<: *airflow-common
     container_name: flu_airflow_scheduler
-    command: airflow scheduler
-    environment:
-      - AIRFLOW_HOME=/app/airflow
-      - AIRFLOW__CORE__DAGS_FOLDER=/app/dags
-      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://fluuser:flupass@postgres:5432/flu_database
-      - AIRFLOW__CORE__LOAD_EXAMPLES=False
-    volumes:
-      - .:/app
+    command: scheduler
+    restart: always
     depends_on:
       postgres:
         condition: service_healthy
-    networks:
-      - flu_network
-    restart: always
+      airflow-init:
+        condition: service_completed_successfully
 
-  jupyter-notebook:
-    build: .
-    container_name: flu_jupyter_notebook
-    command: jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token=flutoken --NotebookApp.allow_origin='*' --NotebookApp.disable_check_xsrf=True
-    ports:
-      - "8888:8888"
-    volumes:
-      - .:/app
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    image: flu-pipeline/api:latest
+    container_name: flu_api
     environment:
-      - POSTGRES_HOST=postgres
-      - POSTGRES_USER=fluuser
-      - POSTGRES_PASSWORD=flupass
-      - POSTGRES_DB=flu_database
+      APP_DB_USER: ${APP_DB_USER:-fluuser}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-flupass}
+      APP_DB_HOST: ${APP_DB_HOST:-postgres}
+      APP_DB_PORT: ${APP_DB_PORT:-5432}
+      APP_DB_NAME: ${APP_DB_NAME:-flu_database}
+    ports:
+      - "${API_PORT:-5001}:5000"
+    restart: always
     depends_on:
       postgres:
         condition: service_healthy
     networks:
       - flu_network
-    restart: always
-
-  flask-api:
-    build: .
-    container_name: flu_flask_api
-    command: python api/app.py
-    ports:
-      - "5001:5000"
-    environment:
-      - POSTGRES_HOST=postgres
-      - POSTGRES_USER=fluuser
-      - POSTGRES_PASSWORD=flupass
-      - POSTGRES_DB=flu_database
-      - FLASK_ENV=development
-    volumes:
-      - .:/app
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - flu_network
-    restart: always
 
 networks:
   flu_network:
@@ -113,3 +127,5 @@ networks:
 
 volumes:
   postgres_data:
+  airflow_logs:
+  flu_data:
